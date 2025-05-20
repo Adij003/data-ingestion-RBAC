@@ -80,7 +80,7 @@ def signup(user_data: user_schemas.UserCreate, response:Response , db: Session =
     }
 
 @router.post("/login", response_model=user_schemas.LoginResponse)
-def login_user(email: str, password: str, response:Response, db: Session = Depends(get_db)):
+def login_user(email: str, password: str, response: Response, db: Session = Depends(get_db)):
     user_obj = db.query(user_models.User).filter_by(email=email).first()
 
     if not user_obj or not verify_password(password, user_obj.password):
@@ -93,21 +93,27 @@ def login_user(email: str, password: str, response:Response, db: Session = Depen
         data={"sub": str(user_obj.id)},
         expires_delta=timedelta(minutes=60)
     )
+
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=False,  # Set to True in production (HTTPS only)
+        secure=False,  # Set to True in production
         samesite="lax",
-          path="/",
+        path="/",
     )
 
     project_details = db.query(projects.ProjectDetail).filter_by(employee_id=user_obj.id).all()
 
+    # Convert each project to a dictionary
+    project_dicts = [p.__dict__ for p in project_details]
+    for project in project_dicts:
+        project.pop("_sa_instance_state", None)  # Remove SQLAlchemy internal field
+
     return {
-        "status" : "success",
+        "status": "success",
         "user": user_schemas.UserOut.from_orm(user_obj),
-        "projects": [user_schemas.ProjectDetailOut.from_orm(p) for p in project_details],
+        "projects": project_dicts,
         "access_token": access_token,
         "token_type": "bearer"
     }
@@ -172,12 +178,12 @@ def reset_user_password(email:str, newpassword:str, db:Session =  Depends(get_db
 
     if not  user_obj:
         raise HTTPException(status_code=404, detail="User not found")
-    hashed_password = hashlib.sha256(newpassword.encode()).hexdigest()
+    hashed_password = hash_password(newpassword)
     user_obj.password = hashed_password
-    user_obj.password = newpassword
+    # user_obj.password = newpassword
     db.commit()
     db.refresh(user_obj)
-    return {"detail":"user passweord   has  changed  successfully"}
+    return {"detail":"user password   has  changed  successfully"}
 
 from math import ceil
 from fastapi import Query

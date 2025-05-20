@@ -2,7 +2,6 @@ from pydantic import BaseModel , EmailStr
 from typing import Optional, List
 from uuid import UUID
 from datetime import date, datetime
-
 from models.projects import ProjectStatusEnum , ProjectDetailsStatusEnum
 from enum import Enum
 
@@ -47,6 +46,22 @@ class ProjectOutManager(BaseModel):
         orm_mode = True
 
 
+class ProjectDetailOut(BaseModel):
+    details_id: UUID
+    project_id: UUID
+    employee_id: UUID
+    role_id: UUID
+    status: str
+    manager_approved: bool
+    approved_manager: UUID
+    admin_approved: str 
+    remark: Optional[str] = ""
+    last_edited_on: datetime
+    last_edited_by: UUID
+
+    class Config:
+        orm_mode = True
+
 class ProjectDetailsOut(BaseModel):
     details_id: UUID
     project_id: UUID
@@ -70,6 +85,8 @@ class ProjectDetailsOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+
 
 class  allProjectOut(BaseModel):
     allProjects:List[ProjectDetailsOut]

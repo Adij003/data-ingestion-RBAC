@@ -48,7 +48,7 @@ class ManagerOut(BaseModel):
 class LoginResponse(BaseModel):
     status:str
     user: UserOut
-    projects: List[projects.ProjectDetailsOut]
+    projects: List[dict]
     access_token: str
     token_type: str = "bearer" 
 

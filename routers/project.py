@@ -361,8 +361,11 @@ def all_projects_assigned_to_manager(
         raise HTTPException(status_code=403, detail="Only managers can perform this action")
 
     all_projects = db.query(project_models.Project).filter(
-        project_models.Project.project_owner == current_user.id
+        project_models.Project.project_owner == current_user.id,
+        project_models.Project.project_status == "ongoing",
     ).all()
+
+
 
     if not all_projects:
         raise HTTPException(status_code=200, detail="false")
