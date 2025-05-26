@@ -63,11 +63,12 @@ class ProjectDetail(Base):
     last_edited_on = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_edited_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     remark = Column(String)
-
+    project_request_date = Column(DateTime, default=datetime.utcnow)
+    project_Approve_date =  Column(DateTime, nullable = True)
     project = relationship("Project", back_populates="details")
     employee = relationship("User", foreign_keys=[employee_id])
     role = relationship("Role")
-    manageer = relationship("User", foreign_keys=[approved_manager])
+    manager = relationship("User", foreign_keys=[approved_manager])
     editor = relationship("User", foreign_keys=[last_edited_by])
 
 

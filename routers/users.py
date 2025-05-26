@@ -17,7 +17,11 @@ from math import ceil
 from auth.getCurrUser import get_current_user
 from sqlalchemy import asc , desc
 from utils.email_templates import manager_request_user_assignment_template , html_description_manager ,user_account_created_template,  html_description_user , html_description_otp
+from utils.searchCode import search_model_any_keyword
 router = APIRouter(prefix="/users", tags=["Users"])
+from sqlalchemy.orm import aliased
+from sqlalchemy import or_, func, desc
+from math import ceil
 
 def get_db():
     db = SessionLocal()
@@ -190,92 +194,19 @@ from fastapi import Query
 
 @router.get("/Approved/new-user-request/{user_id}", response_model=project_scjemas.allProjectOut)
 def get_Approved_users(
+    request: Request,
     user_id: UUID,
     page: int = Query(1, ge=1),
+     search: str = Query("", alias="search"),
     current_user: user_models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    if not current_user:
-        raise HTTPException(status_code=403, detail="No Login User Found")
-    if not current_user.is_admin and not current_user.is_manager:
-        raise HTTPException(status_code=403, detail="Only Admin or Manager Can Perform This Action")
-
-    manageroradmin = db.query(user_models.User).filter(user_models.User.id == user_id).first()
-    if not manageroradmin:
-        raise HTTPException(status_code=404, detail="Current user not found")
-
-    limit = 10
-    offset = (page - 1) * limit
-
-    base_query = db.query(projects.ProjectDetail).filter(
-        projects.ProjectDetail.manager_approved == True,
-        projects.ProjectDetail.admin_approved == "Approved"
-    ).order_by(desc(projects.ProjectDetail.last_edited_on))
-
-    if manageroradmin.is_manager:
-        base_query = base_query.filter(projects.ProjectDetail.approved_manager == user_id)
-
-    total_count = base_query.count()
-    total_pages = ceil(total_count / limit)
-
-    approved_projects = base_query.offset(offset).limit(limit).all()
-
-    allProjectsout = []
-    for proj in approved_projects:
-        one_user = db.query(user_models.User).filter(user_models.User.id == proj.employee_id).first()
-        one_role = db.query(Role).filter(Role.role_id == proj.role_id).first()
-        approved_manager = db.query(user_models.User).filter(user_models.User.id == proj.approved_manager).first()
-        projectsdata = db.query(projects.Project).filter(projects.Project.project_id == proj.project_id).first()
-        
-        if one_user and one_role and approved_manager:
-            outOneProject = {
-                "details_id": proj.details_id,
-                "project_id": proj.project_id,
-                "user_id": one_user.id,
-                "employee_id": one_user.emp_id,
-                "project_name": projectsdata.project_name if projectsdata else None,
-                "employee_firstname": one_user.first_name,
-                "employee_lastname": one_user.last_name,
-                "employee_email": one_user.email,
-                "role_id": one_role.role_id,
-                "role_name": one_role.role_name,
-                "status": proj.status,
-                "manager_approved": proj.manager_approved,
-                "approved_manager": proj.approved_manager,
-                "manager_name": f"{approved_manager.first_name} {approved_manager.last_name}",
-                "manager_email": approved_manager.email,
-                "admin_approved": proj.admin_approved,
-                "remark": proj.remark,
-                "last_edited_on": proj.last_edited_on,
-                "last_edited_by": proj.last_edited_by
-            }
-            allProjectsout.append(outOneProject)
-
-    return {
-        "allProjects": allProjectsout,
-        "pagination": {
-            "total_count": total_count,
-            "total_pages": total_pages,
-            "current_page": page,
-            "per_page": limit
-        }
-    }
-
-
-
-@router.get("/notApproved/new-user-request/{user_id}", response_model=project_scjemas.allProjectOut)
-def get_notApproved_users(
-    request: Request ,
-    user_id: UUID,
-    current_user: user_models.User = Depends(get_current_user),
-    page: int = Query(1, ge=1), 
     db: Session = Depends(get_db)
 ):
     token = request.cookies.get("access_token")
-    print("this is the  token  from  get not approved users:" , token)
+    print("this is the token from get not approved users:", token)
+    print("search  query is : " , search)
     if not current_user:
         raise HTTPException(status_code=403, detail="No Login User Found")
-    if not( current_user.is_admin or current_user.is_manager):
+    if not (current_user.is_admin or current_user.is_manager):
         raise HTTPException(status_code=403, detail="Only Admin or Manager Can Perform This Action")
 
     user = db.query(user_models.User).filter(user_models.User.id == user_id).first()
@@ -285,49 +216,76 @@ def get_notApproved_users(
     limit = 10
     offset = (page - 1) * limit
 
-    base_query = db.query(projects.ProjectDetail).filter(
-        projects.ProjectDetail.manager_approved == True,
-        projects.ProjectDetail.admin_approved.in_(["Pending", "Rejected"])
-    ).order_by(desc(projects.ProjectDetail.last_edited_on))
+    ApprovedManager = aliased(user_models.User)
 
+    base_query = db.query(projects.ProjectDetail,
+                          projects.Project,
+                          user_models.User, 
+                          Role,
+                          ApprovedManager
+                         ).join(projects.Project, projects.ProjectDetail.project_id == projects.Project.project_id
+                         ).join(user_models.User, projects.ProjectDetail.employee_id == user_models.User.id
+                         ).join(Role, projects.ProjectDetail.role_id == Role.role_id
+                         ).join(ApprovedManager, projects.ProjectDetail.approved_manager == ApprovedManager.id, isouter=True
+                         ).filter(
+                             projects.ProjectDetail.manager_approved == True,
+                             projects.ProjectDetail.admin_approved.in_(["Pending", "Rejected"])
+                         ).order_by(desc(projects.ProjectDetail.last_edited_on))
+    
     if user.is_manager:
         base_query = base_query.filter(projects.ProjectDetail.approved_manager == user_id)
 
-    total_count = base_query.count()
+    if search:
+        keywords = search.lower().split()
+        search_filters = []
+        for keyword in keywords:
+            term = f"%{keyword}%"
+            search_filters.append(or_(
+                func.lower(projects.ProjectDetail.admin_approved).like(term),
+                func.lower(projects.ProjectDetail.remark).like(term),
+                func.lower(projects.ProjectDetail.status).like(term),
+                func.lower(projects.Project.project_name).like(term),
+                func.lower(user_models.User.first_name).like(term),
+                func.lower(user_models.User.last_name).like(term),
+                func.lower(user_models.User.email).like(term),
+                func.lower(Role.role_name).like(term),
+                func.lower(ApprovedManager.first_name).like(term),
+                func.lower(ApprovedManager.last_name).like(term),
+                func.lower(ApprovedManager.email).like(term),
+            ))
+        base_query = base_query.filter(*search_filters)
+
+    total_count = base_query.distinct().count()
     total_pages = ceil(total_count / limit)
 
-    notApproved_projects = base_query.offset(offset).limit(limit).all()
+    results = base_query.offset(offset).limit(limit).all()
 
     allProjectsout = []
-    for proj in notApproved_projects:
-        one_user = db.query(user_models.User).filter(user_models.User.id == proj.employee_id).first()
-        one_role = db.query(Role).filter(Role.role_id == proj.role_id).first()
-        approved_manager = db.query(user_models.User).filter(user_models.User.id == proj.approved_manager).first()
-        projectsdata = db.query(projects.Project).filter(projects.Project.project_id == proj.project_id).first()
-
-        if one_user and one_role and approved_manager:
-            outOneProject = {
-                "details_id": proj.details_id,
-                "project_id": proj.project_id,
-                "project_name": projectsdata.project_name if projectsdata else None,
-                "user_id": one_user.id,
-                "employee_id": one_user.emp_id,
-                "employee_firstname": one_user.first_name,
-                "employee_lastname": one_user.last_name,
-                "employee_email": one_user.email,
-                "role_id": one_role.role_id,
-                "role_name": one_role.role_name,
-                "status": proj.status,
-                "manager_approved": proj.manager_approved,
-                "approved_manager": proj.approved_manager,
-                "manager_name": f"{approved_manager.first_name} {approved_manager.last_name}",
-                "manager_email": approved_manager.email,
-                "admin_approved": proj.admin_approved,
-                "remark": proj.remark,
-                "last_edited_on": proj.last_edited_on,
-                "last_edited_by": proj.last_edited_by
-            }
-            allProjectsout.append(outOneProject)
+    for projDetail, projData, empUser, roleData, apprManager in results:
+        outOneProject = {
+            "details_id": projDetail.details_id,
+            "project_id": projDetail.project_id,
+            "project_name": projData.project_name if projData else None,
+            "user_id": empUser.id,
+            "employee_id": empUser.emp_id,
+            "employee_firstname": empUser.first_name,
+            "employee_lastname": empUser.last_name,
+            "employee_email": empUser.email,
+            "role_id": roleData.role_id,
+            "role_name": roleData.role_name,
+            "status": projDetail.status,
+            "manager_approved": projDetail.manager_approved,
+            "approved_manager": projDetail.approved_manager,
+            "manager_name": f"{apprManager.first_name if apprManager else ''} {apprManager.last_name if apprManager else ''}".strip(),
+            "manager_email": apprManager.email if apprManager else None,
+            "admin_approved": projDetail.admin_approved,
+            "remark": projDetail.remark,
+            "last_edited_on": projDetail.last_edited_on,
+            "last_edited_by": projDetail.last_edited_by,
+            "request_project": projDetail.project_request_date,
+            "approved_project": projDetail.project_Approve_date
+        }
+        allProjectsout.append(outOneProject)
 
     return {
         "allProjects": allProjectsout,
@@ -340,34 +298,112 @@ def get_notApproved_users(
     }
 
 
-# @router.post("/manager/approve-user")
-# def approve_user_by_manager(
-#     payload: user_schemas.ApproveUserRequest,
-#     db: Session = Depends(get_db),
-# ):
-#     current_user = db.query(user_models.User).filter_by(id=payload.user_id).first()
 
-#     if not current_user:
-#         raise HTTPException(status_code=404, detail="User not found")
 
-#     if not current_user.is_manager:
-#         raise HTTPException(status_code=403, detail="Only managers can perform this action")
+@router.get("/notApproved/new-user-request/{user_id}", response_model=project_scjemas.allProjectOut)
+def get_notApproved_users(
+    request: Request,
+    user_id: UUID,
+    current_user: user_models.User = Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    search: str = Query("", alias="search"),
+    db: Session = Depends(get_db)
+):
+    token = request.cookies.get("access_token")
+    print("this is the token from get not approved users:", token)
+    print("search  query is : " , search)
+    if not current_user:
+        raise HTTPException(status_code=403, detail="No Login User Found")
+    if not (current_user.is_admin or current_user.is_manager):
+        raise HTTPException(status_code=403, detail="Only Admin or Manager Can Perform This Action")
 
-#     detail = db.query(projects.ProjectDetail).filter_by(
-#         employee_id=payload.employee_id,
-#         project_id=payload.project_id
-#     ).first()
+    user = db.query(user_models.User).filter(user_models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Current user not found")
 
-#     if not detail:
-#         raise HTTPException(status_code=404, detail="Project detail not found")
+    limit = 10
+    offset = (page - 1) * limit
 
-#     detail.manager_approved = True
-#     detail.approved_manager = current_user.id
-#     detail.last_edited_on = datetime.utcnow()
-#     detail.last_edited_by = current_user.id
+    ApprovedManager = aliased(user_models.User)
 
-#     db.commit()
-#     return {"detail": "User approved by manager"}
+    base_query = db.query(projects.ProjectDetail,
+                          projects.Project,
+                          user_models.User, 
+                          Role,
+                          ApprovedManager
+                         ).join(projects.Project, projects.ProjectDetail.project_id == projects.Project.project_id
+                         ).join(user_models.User, projects.ProjectDetail.employee_id == user_models.User.id
+                         ).join(Role, projects.ProjectDetail.role_id == Role.role_id
+                         ).join(ApprovedManager, projects.ProjectDetail.approved_manager == ApprovedManager.id, isouter=True
+                         ).filter(
+                             projects.ProjectDetail.manager_approved == True,
+                             projects.ProjectDetail.admin_approved.in_(["Pending", "Rejected"])
+                         ).order_by(desc(projects.ProjectDetail.last_edited_on))
+    
+    if user.is_manager:
+        base_query = base_query.filter(projects.ProjectDetail.approved_manager == user_id)
+
+    if search:
+        keywords = search.lower().split()
+        search_filters = []
+        for keyword in keywords:
+            term = f"%{keyword}%"
+            search_filters.append(or_(
+                func.lower(projects.ProjectDetail.admin_approved).like(term),
+                func.lower(projects.ProjectDetail.remark).like(term),
+                func.lower(projects.ProjectDetail.status).like(term),
+                func.lower(projects.Project.project_name).like(term),
+                func.lower(user_models.User.first_name).like(term),
+                func.lower(user_models.User.last_name).like(term),
+                func.lower(user_models.User.email).like(term),
+                func.lower(Role.role_name).like(term),
+                func.lower(ApprovedManager.first_name).like(term),
+                func.lower(ApprovedManager.last_name).like(term),
+                func.lower(ApprovedManager.email).like(term),
+            ))
+        base_query = base_query.filter(*search_filters)
+
+    total_count = base_query.distinct().count()
+    total_pages = ceil(total_count / limit)
+
+    results = base_query.offset(offset).limit(limit).all()
+
+    allProjectsout = []
+    for projDetail, projData, empUser, roleData, apprManager in results:
+        outOneProject = {
+            "details_id": projDetail.details_id,
+            "project_id": projDetail.project_id,
+            "project_name": projData.project_name if projData else None,
+            "user_id": empUser.id,
+            "employee_id": empUser.emp_id,
+            "employee_firstname": empUser.first_name,
+            "employee_lastname": empUser.last_name,
+            "employee_email": empUser.email,
+            "role_id": roleData.role_id,
+            "role_name": roleData.role_name,
+            "status": projDetail.status,
+            "manager_approved": projDetail.manager_approved,
+            "approved_manager": projDetail.approved_manager,
+            "manager_name": f"{apprManager.first_name if apprManager else ''} {apprManager.last_name if apprManager else ''}".strip(),
+            "manager_email": apprManager.email if apprManager else None,
+            "admin_approved": projDetail.admin_approved,
+            "remark": projDetail.remark,
+            "last_edited_on": projDetail.last_edited_on,
+            "last_edited_by": projDetail.last_edited_by,
+            "request_project": projDetail.project_request_date,
+            "approved_project": projDetail.project_Approve_date
+        }
+        allProjectsout.append(outOneProject)
+
+    return {
+        "allProjects": allProjectsout,
+        "pagination": {
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "current_page": page,
+            "per_page": limit
+        }
+    }
 
 
 @router.patch("/admin/approve-user")
@@ -412,7 +448,7 @@ def approve_user_by_admin(
     detail.remark = data.remark
     detail.last_edited_on = datetime.utcnow()
     detail.last_edited_by = data.admin_id
-
+    detail.project_Approve_date = datetime.utcnow()
     db.commit()
 
     if data.admin_approved == 'Approved':

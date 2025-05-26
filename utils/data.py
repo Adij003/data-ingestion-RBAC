@@ -131,7 +131,9 @@ def seed_data():
                     admin_approved=random.choice(list(ProjectDetailsStatusEnum)).value,
                     last_edited_on=datetime.utcnow(),
                     last_edited_by=editor.id,
-                    remark="Auto-generated remark"
+                    remark="Auto-generated remark",      
+                    project_request_date=datetime.utcnow(),
+                    project_Approve_date=random.choice([None, date.today()])
                 )
                 session.add(detail)
 

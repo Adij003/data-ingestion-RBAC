@@ -13,6 +13,7 @@ from datetime import datetime
 from auth.getCurrUser import get_current_user
 from   sqlalchemy  import  asc , desc
 router = APIRouter(prefix="/projects", tags=["Projects"])
+from sqlalchemy import or_, func, desc , and_
 from utils.email_templates import  user_account_created_template , manager_request_user_assignment_template , admin_To_manager_project_Assignment
 # from models.projects import ProjectDetailsStatusEnum , ProjectStatusEnum
 
@@ -62,30 +63,55 @@ def create_new_project( payload: projects_schemas.AddNewProjects, current_user: 
         "message": "Project created successfully!",
     }
 
+from fastapi import Query
+from sqlalchemy import or_, func
+
 @router.get("/", response_model=projects_schemas.AllProjectsOut)
 def get_all_projects(
     page: int = Query(1, ge=1),
+    search: str = Query("", alias="search"),
     db: Session = Depends(get_db),
     current_user: users_model.User = Depends(get_current_user)
 ):
-    if not  current_user:
-        raise HTTPException(status_code=403, detail="login  please")
+    if not current_user:
+        raise HTTPException(status_code=403, detail="Login required")
+
     limit = 10
     offset = (page - 1) * limit
 
-    total_count = db.query(project_models.Project).count()
+    base_query = db.query(
+        project_models.Project,
+        users_model.User.first_name,
+        users_model.User.last_name
+    ).join(
+        users_model.User, project_models.Project.project_owner == users_model.User.id
+    )
+
+    if search.strip():
+        keywords = search.lower().split()
+        field_filters = []
+
+        # Check each field individually for all keywords
+        for field in [
+            project_models.Project.project_name,
+            project_models.Project.project_description,
+            users_model.User.first_name,
+            users_model.User.last_name
+        ]:
+            keyword_conditions = [
+                func.lower(field).like(f"%{kw}%") for kw in keywords
+            ]
+            field_filters.append(and_(*keyword_conditions))
+
+        base_query = base_query.filter(or_(*field_filters))
+
+
+    total_count = base_query.count()
     total_page_count = ceil(total_count / limit)
 
-    all_projects = db.query(
-    project_models.Project,
-    users_model.User.first_name,
-    users_model.User.last_name
-).join(
-    users_model.User, project_models.Project.project_owner == users_model.User.id
-).order_by(
-    desc(project_models.Project.project_name)
-).offset(offset).limit(limit).all()
-
+    all_projects = base_query.order_by(
+        desc(project_models.Project.project_name)
+    ).offset(offset).limit(limit).all()
 
     if not all_projects:
         raise HTTPException(status_code=404, detail="Projects not found")
@@ -104,11 +130,12 @@ def get_all_projects(
             "AF": project.AF,
             "EA": project.EA,
             "DI": project.DI,
-            "edited_by":project.edited_by,
-            "edited_on":project.edited_on,
+            "edited_by": project.edited_by,
+            "edited_on": project.edited_on,
             "start_date": project.start_date,
             "end_date": project.end_date
         })
+
     return {
         "projects": projects_out,
         "pagination": {
@@ -118,6 +145,7 @@ def get_all_projects(
             "per_page": limit
         }
     }
+
 
 @router.patch("/update/{detail_id}")
 def update_project_detail(

@@ -82,6 +82,8 @@ class ProjectDetailsOut(BaseModel):
     remark: Optional[str] = ""
     last_edited_on: datetime
     last_edited_by: UUID
+    request_project:datetime
+    approved_project:Optional[datetime]
 
     class Config:
         orm_mode = True
