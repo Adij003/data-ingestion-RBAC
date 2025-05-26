@@ -1,18 +1,18 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query
 from sqlalchemy import or_, func
 
 def search_model_any_keyword(
-    db: Session,
+    base_query: Query,
     model,
     search_fields: list[str],
     query: str
 ):
     """
-    Search case-insensitively for any keyword in the query string
-    across multiple fields. Returns unique rows.
+    Extend a base query to filter rows case-insensitively based on any keyword
+    appearing in any of the specified fields.
     """
     if not query:
-        return db.query(model).all()
+        return base_query.distinct().all()
 
     keywords = query.lower().split()
     filters = []
@@ -26,6 +26,6 @@ def search_model_any_keyword(
         ])
 
     if not filters:
-        return []
+        return base_query.distinct().all()
 
-    return db.query(model).filter(or_(*filters)).distinct().all()
+    return base_query.filter(or_(*filters)).distinct().all()

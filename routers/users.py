@@ -20,7 +20,7 @@ from utils.email_templates import manager_request_user_assignment_template , htm
 from utils.searchCode import search_model_any_keyword
 router = APIRouter(prefix="/users", tags=["Users"])
 from sqlalchemy.orm import aliased
-from sqlalchemy import or_, func, desc
+from sqlalchemy import or_, func, desc , and_
 from math import ceil
 
 def get_db():
