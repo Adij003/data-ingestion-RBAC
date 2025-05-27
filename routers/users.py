@@ -217,6 +217,17 @@ def get_Approved_users(
     offset = (page - 1) * limit
 
     ApprovedManager = aliased(user_models.User)
+    total_approved =0
+    if current_user.is_manager:
+            total_approved = db.query(projects.ProjectDetail).filter(
+        projects.ProjectDetail.admin_approved == "Approved",
+        projects.ProjectDetail.approved_manager == current_user.id
+).distinct().count()
+    else:
+        total_approved = db.query(projects.ProjectDetail).filter(
+        projects.ProjectDetail.admin_approved == "Approved",
+).distinct().count()
+
 
     base_query = db.query(projects.ProjectDetail,
                           projects.Project,
@@ -229,7 +240,7 @@ def get_Approved_users(
                          ).join(ApprovedManager, projects.ProjectDetail.approved_manager == ApprovedManager.id, isouter=True
                          ).filter(
                              projects.ProjectDetail.manager_approved == True,
-                             projects.ProjectDetail.admin_approved.in_(["Pending", "Rejected"])
+                             projects.ProjectDetail.admin_approved.in_(["Approved"])
                          ).order_by(desc(projects.ProjectDetail.last_edited_on))
     
     if user.is_manager:
@@ -290,7 +301,7 @@ def get_Approved_users(
     return {
         "allProjects": allProjectsout,
         "pagination": {
-            "total_count": total_count,
+            "total_count": total_approved,
             "total_pages": total_pages,
             "current_page": page,
             "per_page": limit
@@ -326,6 +337,23 @@ def get_notApproved_users(
 
     ApprovedManager = aliased(user_models.User)
 
+    total_approved =0
+    if current_user.is_manager:
+        total_approved = db.query(projects.ProjectDetail).filter(
+            or_(
+                projects.ProjectDetail.admin_approved == "Rejected",
+                projects.ProjectDetail.admin_approved == "Pending"
+            ),
+            projects.ProjectDetail.approved_manager == current_user.id
+        ).distinct().count()
+    else:
+        total_approved = db.query(projects.ProjectDetail).filter(
+            or_(
+                projects.ProjectDetail.admin_approved == "Rejected",
+                projects.ProjectDetail.admin_approved == "Pending"
+            )
+        ).distinct().count()
+
     base_query = db.query(projects.ProjectDetail,
                           projects.Project,
                           user_models.User, 
@@ -398,7 +426,7 @@ def get_notApproved_users(
     return {
         "allProjects": allProjectsout,
         "pagination": {
-            "total_count": total_count,
+            "total_count": total_approved,
             "total_pages": total_pages,
             "current_page": page,
             "per_page": limit

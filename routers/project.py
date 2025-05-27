@@ -78,6 +78,8 @@ def get_all_projects(
 
     limit = 10
     offset = (page - 1) * limit
+    total_projects = db.query(project_models.Project).count()
+    print('Total Projects are: ', total_projects)
 
     base_query = db.query(
         project_models.Project,
@@ -95,6 +97,7 @@ def get_all_projects(
         for field in [
             project_models.Project.project_name,
             project_models.Project.project_description,
+            project_models.Project.project_status,
             users_model.User.first_name,
             users_model.User.last_name
         ]:
@@ -113,8 +116,8 @@ def get_all_projects(
         desc(project_models.Project.project_name)
     ).offset(offset).limit(limit).all()
 
-    if not all_projects:
-        raise HTTPException(status_code=404, detail="Projects not found")
+    # if not all_projects:
+    #     raise HTTPException(status_code=404, detail="Projects not found")
 
     projects_out = []
     for project, first_name, last_name in all_projects:
@@ -139,7 +142,7 @@ def get_all_projects(
     return {
         "projects": projects_out,
         "pagination": {
-            "total_count": total_count,
+            "total_count": total_projects,
             "total_pages": total_page_count,
             "current_page": page,
             "per_page": limit
